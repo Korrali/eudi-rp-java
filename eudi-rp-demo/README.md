@@ -37,12 +37,13 @@ canned responses:
 
 ## Real wallet mode
 
-Set `EUDIRP_DEMO_WALLET_MODE=real` and `EUDIRP_DEMO_BASE_URL` to a publicly-reachable URL (e.g. via
-a tunnel) before starting. **This has not been tested against a real wallet in this project's
-development** — see `eudi-rp-mock-wallet/COMPATIBILITY.md` for exactly what was and wasn't
-attempted. The request/response endpoints are structurally correct per DESIGN.md and the reference
-implementation's own shape (`GET /api/wallet/request.jwt/{id}`, `POST /api/wallet/direct_post/{id}`),
-but interoperability with an independent wallet implementation is unverified.
+Set `EUDIRP_DEMO_WALLET_MODE=real` and `EUDIRP_DEMO_BASE_URL` to a publicly-reachable URL before
+starting (the live deployment already does this — `eudirp.korrali.com`). **Verified against the
+OpenID Foundation's official OpenID4VP conformance suite — full pass**, including the encrypted
+`direct_post.jwt` response mode; see `eudi-rp-mock-wallet/COMPATIBILITY.md` for the exact test plan,
+what it found (5 real bugs, since fixed), and what it proves vs. doesn't. **Still not tested against
+an actual EUDI wallet app** (device/emulator) or the EU reference verifier service — the conformance
+suite is an independent protocol simulator, not either of those.
 
 ## Single container
 

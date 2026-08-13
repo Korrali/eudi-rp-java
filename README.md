@@ -99,11 +99,16 @@ could complete without real infrastructure access.
 - **mdoc / ISO 18013-5 is not supported**, full stop — not deferred to a future release. This
   project makes no forward commitments (see DESIGN.md §3). SD-JWT VC is the only credential format
   implemented.
-- **Not tested against a real EUDI wallet or the EU reference verifier.** Everything in this
-  repository verifies internal consistency — this library's request builder produces exactly what
-  this library's own verifier and mock wallet expect. That is not the same as proving
-  interoperability with an independent implementation. See `eudi-rp-mock-wallet/COMPATIBILITY.md`
-  for exactly what was and wasn't attempted, and why.
+- **Verified against the OpenID Foundation's official OpenID4VP conformance suite — full pass**
+  (`oid4vp-1final-verifier-happy-flow`, HAIP/SD-JWT VC/`x509_hash`/`direct_post.jwt` variant): every
+  protocol-level check succeeds against an independent, spec-authoritative simulated wallet, not
+  just this library's own mock. The first run found 5 real spec-compliance bugs (x5c trust-anchor
+  inclusion, non-URL-safe nonce, missing `vp_formats_supported`, incomplete HAIP encryption
+  algorithm list, missing `aud`) plus a missing `redirect_uri` in the demo's response — all fixed
+  and re-verified, see `eudi-rp-mock-wallet/COMPATIBILITY.md` and the git history for specifics.
+  **Still not tested**: a real EUDI wallet app (device/emulator) or the EU reference verifier
+  service — the conformance suite is a protocol simulator, not either of those. See
+  `eudi-rp-mock-wallet/COMPATIBILITY.md` for exactly what remains open and why.
 - **Credential-issuer trust is out of scope.** Verifying who signed a presented credential (as
   opposed to the RP's own access certificate, which is this library's actual focus) is left to a
   caller-supplied `IssuerSignatureVerifierResolver` — this wasn't part of what the Phase 0 research
