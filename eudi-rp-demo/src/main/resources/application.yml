@@ -1,0 +1,33 @@
+server:
+  port: 8080
+
+eudirp:
+  certificate:
+    keystore-path: ${eudirp.demo.data-dir:./demo-data}/rp.p12
+    keystore-type: PKCS12
+    store-password: demo-password
+    alias: rp
+  trust-list:
+    path: ${eudirp.demo.data-dir:./demo-data}/trust.pem
+  registration:
+    declared-attributes-file: ${eudirp.demo.data-dir:./demo-data}/declared-attributes.txt
+  revocation:
+    # The demo's self-generated CA doesn't run a CRL/OCSP responder, so there is nothing to check
+    # against for the *happy-path* flow — fail-closed would always report DOWN. The failure
+    # simulator's "revoked certificate" case builds its own real CRL and checks it directly rather
+    # than going through this global setting.
+    fail-closed: false
+
+eudirp.demo:
+  data-dir: ${EUDIRP_DEMO_DATA_DIR:./demo-data}
+  wallet-mode: ${EUDIRP_DEMO_WALLET_MODE:mock}
+  base-url: ${EUDIRP_DEMO_BASE_URL:http://localhost:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always

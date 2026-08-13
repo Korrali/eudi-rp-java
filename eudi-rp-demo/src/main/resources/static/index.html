@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eudi-rp-java demo</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>eudi-rp-java</h1>
+    <p class="context">A Java/Spring Boot library for acting as an EUDI Wallet Relying Party. This
+      page is a proof, not a product: it runs one real presentation flow, and — the actual point of
+      this demo — four real certificate failure scenarios against the library's own code.</p>
+  </header>
+
+  <section id="flow-section">
+    <h2>Presentation flow</h2>
+    <button id="start-btn">Request identity verification</button>
+
+    <div id="flow-body" hidden>
+      <div class="qr-row">
+        <img id="qr-image" alt="Scan with an EUDI wallet">
+        <div class="qr-side">
+          <p>Scan with a wallet app, or, on the same device:</p>
+          <a id="same-device-link" href="#">Open in wallet</a>
+          <p id="mock-wallet-note" hidden>
+            No live wallet is configured (<code>walletMode=mock</code>).
+            <button id="simulate-scan-btn">Simulate wallet scan</button>
+          </p>
+        </div>
+      </div>
+
+      <ol class="status-track">
+        <li data-state="AWAITING_SCAN">Awaiting scan</li>
+        <li data-state="REQUEST_SENT">Request sent</li>
+        <li data-state="RESPONSE_RECEIVED">Response received</li>
+        <li data-state="VERIFIED">Verified</li>
+      </ol>
+
+      <div id="result-panel" hidden>
+        <h3>Result</h3>
+        <table id="result-table"></table>
+      </div>
+
+      <div id="error-panel" hidden class="card card-fail">
+        <h3>Failed</h3>
+        <p id="error-text"></p>
+      </div>
+
+      <details id="raw-view">
+        <summary>Raw request / response</summary>
+        <pre id="raw-content"></pre>
+      </details>
+    </div>
+  </section>
+
+  <section id="simulator-section">
+    <h2>Certificate failure simulator</h2>
+    <p class="context">Presentation flows are table stakes. Certificate lifecycle is where real
+      deployments break — these four buttons run the real code paths, live, against real
+      BouncyCastle/JDK certificate machinery. Nothing here is canned.</p>
+
+    <div class="sim-grid">
+      <button class="sim-btn" data-endpoint="/api/simulate/expired-certificate">Expired certificate</button>
+      <button class="sim-btn" data-endpoint="/api/simulate/revoked-certificate">Revoked certificate</button>
+      <button class="sim-btn" data-endpoint="/api/simulate/malformed-certificate">Malformed certificate</button>
+      <button class="sim-btn" data-endpoint="/api/simulate/certificate-rotation">Certificate rotated mid-session</button>
+    </div>
+
+    <div id="sim-results"></div>
+  </section>
+
+  <footer>
+    <p>Source: <a href="https://github.com/korrali/eudi-rp-java">github.com/korrali/eudi-rp-java</a></p>
+  </footer>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
