@@ -138,6 +138,11 @@ parsing, and hot-reloadable signing certificates with automatic on-failure refre
 the same failure class, generalized to OpenID4VP relying-party certificates ahead of the EUDI
 wallet mandate. [korrali.com](https://www.korrali.com)
 
+**Need this integrated before the December 2027 deadline?** The library is free; getting it wired
+into your actual stack — real access certificates from your notified Access Certificate Authority,
+your specific attribute set, your registration declaration — is exactly the kind of production PKI
+integration work described above. Reach out: bhagat.ashish.a@gmail.com.
+
 ## License
 
 Apache License 2.0.
