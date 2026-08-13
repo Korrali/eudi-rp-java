@@ -1,13 +1,16 @@
 name: release
 
-# Triggered by pushing a tag like v0.1.0. Requires these repository secrets to be configured before
-# it can succeed — none of them exist yet as part of this build:
+# Triggered by pushing a tag like v0.1.0. Requires these repository secrets:
 #   GPG_PRIVATE_KEY        — armored private key for signing release artifacts
 #   GPG_PASSPHRASE         — passphrase for that key
 #   CENTRAL_TOKEN_USERNAME — Central Portal user token username (not your account password)
 #   CENTRAL_TOKEN_PASSWORD — Central Portal user token password
 # The com.korrali namespace must also already be verified on Central Portal via a DNS TXT record
-# on korrali.com before a deploy can succeed — see the root README's publish checklist.
+# on korrali.com before a deploy can succeed.
+#
+# The Maven Central deploy lands as a validated-but-unpublished deployment on Central Portal
+# (autoPublish is false in the release profile) — publishing it live still needs a human to log
+# into central.sonatype.com and confirm, on purpose.
 
 on:
   push:
@@ -17,6 +20,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
