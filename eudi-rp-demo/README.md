@@ -51,10 +51,18 @@ docker build -t eudi-rp-demo .
 docker run -p 8080:8080 eudi-rp-demo
 ```
 
-## What wasn't verified in a browser
+## Testing
 
-The backend was verified end-to-end via `curl` (presentation creation, QR PNG generation, status
-polling, the mock-wallet round trip, and all four failure-simulator endpoints all returned correct,
-real data). The frontend HTML/CSS/JS was written and reviewed but not interactively tested in an
-actual browser — no browser automation tool was available in the environment this was built in. If
-something in the UI doesn't render as intended, that's the most likely place to check first.
+Backend: `mvn test` (unit + `@SpringBootTest` integration tests, including all four
+failure-simulator endpoints — see `DemoApplicationSmokeTest`).
+
+Frontend: `e2e/` — real-browser tests (Playwright + actual Chrome, not a JS-engine
+reimplementation) covering the full UI flow and all four failure-simulator buttons. See
+`e2e/README.md`. An earlier attempt using HtmlUnit (pure-JVM headless browser) failed outright — its
+JS engine can't parse the `async () => {}` arrow functions `app.js` uses throughout; noted there in
+case anyone's tempted to reach for HtmlUnit again.
+
+Not covered by anything automated: a real EUDI wallet or the EU reference verifier (see "Real
+wallet mode" above and `eudi-rp-mock-wallet/COMPATIBILITY.md`), and there's no load/fuzz/security
+test suite for the demo layer specifically (some of that exists at the `eudi-rp-core` level — see
+the root README).

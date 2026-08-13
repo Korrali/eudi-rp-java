@@ -62,4 +62,47 @@ class DemoApplicationSmokeTest {
 
         assertThat(result.get("exceptionType")).isEqualTo("ExpiredCertificateException");
     }
+
+    @Test
+    void revokedCertificateSimulatorReportsCrlAsTheCatchingSource() {
+        String base = "http://localhost:" + port;
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = rest.postForObject(base + "/api/simulate/revoked-certificate", null, Map.class);
+
+        assertThat(result.get("outcome")).asString().startsWith("revoked");
+        assertThat(result.get("revocationSource")).isEqualTo("CRL");
+        assertThat(result.get("reason")).isEqualTo("KEY_COMPROMISE");
+        assertThat(result.get("revokedAt")).isNotNull();
+    }
+
+    @Test
+    void malformedCertificateSimulatorShowsStrictRejectingAndTolerantAccepting() {
+        String base = "http://localhost:" + port;
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = rest.postForObject(base + "/api/simulate/malformed-certificate", null, Map.class);
+
+        assertThat(result.get("strictPathResult")).isEqualTo("rejected");
+        assertThat(result.get("tolerantPathResult")).isEqualTo("accepted");
+        assertThat(result.get("outcome")).asString().contains("tolerant fallback");
+        assertThat(result.get("parsedSubject")).asString().contains("malformed-rp.example.org");
+    }
+
+    @Test
+    void certificateRotationSimulatorFailsThenSucceedsOnRetry() {
+        String base = "http://localhost:" + port;
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = rest.postForObject(base + "/api/simulate/certificate-rotation", null, Map.class);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstAttempt = (Map<String, Object>) result.get("firstAttempt");
+        assertThat(firstAttempt.get("exceptionType")).isEqualTo("ExpiredCertificateException");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> secondAttempt = (Map<String, Object>) result.get("secondAttempt");
+        assertThat(secondAttempt.get("outcome")).asString().contains("succeeded on retry");
+        assertThat(secondAttempt.get("resolvedCertificateSerial")).isNotNull();
+    }
 }

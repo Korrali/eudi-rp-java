@@ -1,0 +1,12 @@
+{
+  "name": "eudi-rp-demo-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Real-browser (Playwright/Chromium) end-to-end tests for eudi-rp-demo's frontend. Dev/test tooling only — not part of the shipped demo, not wired into the Maven build. The frontend itself (index.html/app.js) stays framework-free and Node-free; this is a separate verification harness.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}
