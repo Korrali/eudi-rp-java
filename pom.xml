@@ -147,10 +147,6 @@
   <!--
     Activated only for an actual release (`mvn -Prelease deploy`), not everyday builds — signing
     every local `mvn test` with a GPG key nobody has configured would just break local development.
-    See CONTRIBUTING.md / the root README's publish checklist for what has to exist (a real GPG
-    key, Central Portal account + token, the com.korrali namespace verified via DNS TXT record on
-    korrali.com) before this profile can actually run to completion. None of that has been done as
-    part of this build — this is the plumbing, not a completed publish.
   -->
   <profiles>
     <profile>
@@ -195,10 +191,12 @@
             <!-- Sonatype's current Central Portal publisher, replacing the old OSSRH/nexus-staging
                  plugin. Requires CENTRAL_TOKEN_USERNAME/CENTRAL_TOKEN_PASSWORD (a Central Portal
                  user token, not your Sonatype account password) configured in settings.xml or CI
-                 secrets — not present in this build. -->
+                 secrets. Pinned above 0.6.0 — that version's response model doesn't know about the
+                 "warnings" field Central Portal's API returns for components with javadoc lint
+                 warnings, and crashes deserializing it mid-poll (deploy itself still succeeds). -->
             <groupId>org.sonatype.central</groupId>
             <artifactId>central-publishing-maven-plugin</artifactId>
-            <version>0.6.0</version>
+            <version>0.11.0</version>
             <extensions>true</extensions>
             <configuration>
               <publishingServerId>central</publishingServerId>
