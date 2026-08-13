@@ -154,10 +154,19 @@ public class PresentationController {
         } else {
             completeWithWalletResponse(tx, vpToken, state);
         }
-        // An explicit, non-empty JSON body — some wallet/test-client implementations treat a
-        // truly empty response body as a failed call even on HTTP 200 (OpenID4VP itself only
-        // requires a redirect_uri here for same-device continuation, which this flow doesn't use).
-        return ResponseEntity.ok().body(Map.of());
+        // redirect_uri is OPTIONAL in base OpenID4VP §8.2, but HAIP §5.1 makes it REQUIRED — this
+        // library targets HAIP (per ARF §5.7.4), so it always includes one. Per spec: "an absolute
+        // URI... chosen by the Verifier. The Verifier MUST include a fresh, cryptographically
+        // random value in the URL" (recommended ≥128 bits, e.g. via a response_code fragment).
+        String responseCode = generateResponseCode();
+        String redirectUri = baseUrl + "/#response_code=" + responseCode;
+        return ResponseEntity.ok().body(Map.of("redirect_uri", redirectUri));
+    }
+
+    private static String generateResponseCode() {
+        byte[] bytes = new byte[16]; // 128 bits
+        new java.security.SecureRandom().nextBytes(bytes);
+        return com.nimbusds.jose.util.Base64URL.encode(bytes).toString();
     }
 
     @PostMapping("/presentations/{id}/simulate-scan")
