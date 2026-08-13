@@ -28,6 +28,12 @@ public final class Transaction {
     public volatile List<VerifiedPresentation> result;
     public volatile String errorType;
     public volatile String errorMessage;
+    /** Set only on the direct_post.jwt (conformance-suite) path: the transport was decrypted and
+     * the credential was structurally parsed, but the issuer's own signature was NOT verified —
+     * this build has no trust configured for arbitrary external test issuers (DESIGN.md's
+     * credential-issuer trust boundary). Distinguishing this from the mock-wallet path's full
+     * verification, rather than quietly reporting the same "VERIFIED" for both. */
+    public volatile String issuerSignatureNote;
 
     public Transaction(String id, SignedPresentationRequest signedRequest, List<DcqlCredentialQuery> queries,
                         String rpCertificateIssuer, boolean revocationCheckAttempted, String revocationCheckOutcome) {

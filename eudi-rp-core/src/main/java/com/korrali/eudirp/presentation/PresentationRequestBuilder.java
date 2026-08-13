@@ -2,11 +2,16 @@ package com.korrali.eudirp.presentation;
 
 import com.korrali.eudirp.cert.RpKeyMaterial;
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.KeyUse;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jose.util.Base64;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
@@ -19,6 +24,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Builds and signs an OpenID4VP authorization request per DESIGN.md §1: {@code response_type=vp_token},
@@ -79,15 +85,24 @@ public final class PresentationRequestBuilder {
 
         String clientId = X509HashClientId.compute(signingMaterial.leaf());
 
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
                 .claim("response_type", "vp_token")
                 .claim("client_id", clientId)
                 .claim("dcql_query", toDcqlQueryObject())
                 .claim("nonce", nonce)
                 .claim("response_mode", responseMode.wireValue())
                 .claim("response_uri", responseUri)
-                .claim("state", state)
-                .build();
+                .claim("state", state);
+
+        ECKey responseEncryptionKey = null;
+        if (responseMode == ResponseMode.DIRECT_POST_JWT) {
+            // OpenID4VP §response_encryption: the RP advertises an encryption key via
+            // client_metadata.jwks (the wallet picks it by kty/alg) and the content-encryption
+            // algorithms it accepts via encrypted_response_enc_values_supported.
+            responseEncryptionKey = generateResponseEncryptionKey();
+            claimsBuilder.claim("client_metadata", clientMetadataFor(responseEncryptionKey));
+        }
+        JWTClaimsSet claims = claimsBuilder.build();
 
         JWSHeader header = new JWSHeader.Builder(signingAlgorithm())
                 .type(new com.nimbusds.jose.JOSEObjectType("oauth-authz-req+jwt"))
@@ -98,7 +113,23 @@ public final class PresentationRequestBuilder {
         signedJwt.sign(signer());
 
         return new SignedPresentationRequest(
-                signedJwt.serialize(), clientId, nonce, state, responseUri, responseMode);
+                signedJwt.serialize(), clientId, nonce, state, responseUri, responseMode, responseEncryptionKey);
+    }
+
+    private static ECKey generateResponseEncryptionKey() throws JOSEException {
+        return new ECKeyGenerator(Curve.P_256)
+                .keyUse(KeyUse.ENCRYPTION)
+                .algorithm(JWEAlgorithm.ECDH_ES)
+                .keyID(UUID.randomUUID().toString())
+                .generate();
+    }
+
+    private static Map<String, Object> clientMetadataFor(ECKey responseEncryptionKey) {
+        Map<String, Object> jwks = Map.of("keys", List.of(responseEncryptionKey.toPublicJWK().toJSONObject()));
+        Map<String, Object> clientMetadata = new LinkedHashMap<>();
+        clientMetadata.put("jwks", jwks);
+        clientMetadata.put("encrypted_response_enc_values_supported", List.of("A128GCM"));
+        return clientMetadata;
     }
 
     private void enforceDeclaredScope() throws DeclaredScopeViolationException {

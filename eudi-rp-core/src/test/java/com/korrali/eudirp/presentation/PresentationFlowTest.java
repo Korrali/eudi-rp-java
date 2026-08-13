@@ -3,7 +3,14 @@ package com.korrali.eudirp.presentation;
 import com.korrali.eudirp.cert.RpKeyMaterial;
 import com.korrali.eudirp.cert.support.TestCertificates;
 import com.korrali.eudirp.presentation.support.TestSdJwtVc;
+import com.nimbusds.jose.EncryptionMethod;
+import com.nimbusds.jose.JWEAlgorithm;
+import com.nimbusds.jose.JWEHeader;
+import com.nimbusds.jose.JWEObject;
+import com.nimbusds.jose.Payload;
+import com.nimbusds.jose.crypto.ECDHEncrypter;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
+import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jwt.SignedJWT;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -151,5 +158,60 @@ class PresentationFlowTest {
 
         assertThatThrownBy(() -> verifier.verify(response, signed, List.of(query)))
                 .isInstanceOf(PresentationVerificationException.class);
+    }
+
+    @Test
+    void directPostJwtRoundTripsThroughRealEncryptionAndDecryption(@TempDir Path tempDir) throws Exception {
+        DeclaredAttributeSet declared = declaredAttributes(tempDir, "given_name");
+        RpKeyMaterial rpKey = rpKeyMaterial();
+        DcqlCredentialQuery query = new DcqlCredentialQuery(
+                "my_credential", CredentialFormat.SD_JWT_VC,
+                List.of("https://credentials.example.com/identity_credential"),
+                List.of(declared.claim("given_name")));
+
+        SignedPresentationRequest signed = new PresentationRequestBuilder(rpKey, declared)
+                .credential(query)
+                .responseMode(ResponseMode.DIRECT_POST_JWT)
+                .responseUri("https://rp.example.org/wallet/direct_post")
+                .state("encrypted-state-456")
+                .build();
+
+        assertThat(signed.responseEncryptionKey()).isNotNull();
+
+        // The request object itself must advertise the encryption key per OpenID4VP
+        // §response_encryption (client_metadata.jwks) — confirm it's actually there, not just
+        // held server-side.
+        SignedJWT parsedRequest = SignedJWT.parse(signed.requestObjectJwt());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> clientMetadata = (Map<String, Object>) parsedRequest.getJWTClaimsSet().getClaim("client_metadata");
+        assertThat(clientMetadata).containsKey("jwks");
+        assertThat(clientMetadata).containsKey("encrypted_response_enc_values_supported");
+
+        // Simulate the wallet: it only ever sees the PUBLIC half of the key (from client_metadata),
+        // never the private key our RP holds server-side.
+        TestCertificates.IssuedCertificate issuerCa = TestCertificates.selfSignedCa("Test Credential Issuer");
+        String presentation = TestSdJwtVc.build((RSAPrivateKey) issuerCa.privateKey(), "https://issuer.example.org",
+                "https://credentials.example.com/identity_credential",
+                List.of(new TestSdJwtVc.ClaimToDisclose("given_name", "Ada")));
+
+        ECKey walletSideEncryptionKey = signed.responseEncryptionKey().toPublicJWK();
+        JWEHeader jweHeader = new JWEHeader.Builder(JWEAlgorithm.ECDH_ES, EncryptionMethod.A128GCM)
+                .keyID(walletSideEncryptionKey.getKeyID())
+                .build();
+        String payloadJson = "{\"vp_token\":{\"my_credential\":[\"" + presentation + "\"]},\"state\":\"" + signed.state() + "\"}";
+        JWEObject jwe = new JWEObject(jweHeader, new Payload(payloadJson));
+        jwe.encrypt(new ECDHEncrypter(walletSideEncryptionKey));
+        String compactJwe = jwe.serialize();
+
+        // RP side: decrypt using the private key it kept from the original build() call.
+        AuthorizationResponse response = AuthorizationResponse.fromDirectPostJwt(compactJwe, signed.responseEncryptionKey());
+        assertThat(response.state()).isEqualTo("encrypted-state-456");
+
+        PresentationResponseVerifier verifier = new PresentationResponseVerifier(
+                jwt -> new RSASSAVerifier((java.security.interfaces.RSAPublicKey) issuerCa.certificate().getPublicKey()));
+        List<VerifiedPresentation> results = verifier.verify(response, signed, List.of(query));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).disclosedClaims()).containsEntry("given_name", "Ada");
     }
 }

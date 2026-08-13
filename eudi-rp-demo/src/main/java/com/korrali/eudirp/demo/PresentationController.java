@@ -32,6 +32,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +67,8 @@ public class PresentationController {
     }
 
     @PostMapping("/presentations")
-    public Map<String, Object> createPresentation() throws Exception {
+    public Map<String, Object> createPresentation(
+            @RequestParam(value = "responseMode", defaultValue = "direct_post") String responseModeParam) throws Exception {
         String id = UUID.randomUUID().toString();
 
         RpKeyMaterial rpKey = certificateResolver.resolveValid();
@@ -77,10 +79,17 @@ public class PresentationController {
                 List.of("https://credentials.example.com/identity_credential"),
                 List.of(declared.claim("given_name"), declared.claim("family_name"), declared.claim("birth_date")));
 
+        // "direct_post_jwt" opts into encrypted responses (OpenID4VP §response_encryption) — used
+        // for interop testing (e.g. the OIDF OpenID4VP conformance suite) where the HAIP profile's
+        // credential-format/response-mode combination requires it. The default mock-wallet flow
+        // stays on plain direct_post.
+        ResponseMode responseMode = "direct_post_jwt".equals(responseModeParam)
+                ? ResponseMode.DIRECT_POST_JWT : ResponseMode.DIRECT_POST;
+
         String responseUri = baseUrl + "/api/wallet/direct_post/" + id;
         SignedPresentationRequest signedRequest = new PresentationRequestBuilder(rpKey, declared)
                 .credential(query)
-                .responseMode(ResponseMode.DIRECT_POST)
+                .responseMode(responseMode)
                 .responseUri(responseUri)
                 .state(UUID.randomUUID().toString())
                 .build();
@@ -136,10 +145,15 @@ public class PresentationController {
 
     @PostMapping(value = "/wallet/direct_post/{id}", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     public ResponseEntity<Void> directPost(@PathVariable String id,
-                                            @RequestParam("vp_token") String vpToken,
+                                            @RequestParam(value = "vp_token", required = false) String vpToken,
+                                            @RequestParam(value = "response", required = false) String encryptedResponse,
                                             @RequestParam(value = "state", required = false) String state) {
         Transaction tx = store.find(id).orElseThrow();
-        completeWithWalletResponse(tx, vpToken, state);
+        if (encryptedResponse != null) {
+            completeWithEncryptedWalletResponse(tx, encryptedResponse);
+        } else {
+            completeWithWalletResponse(tx, vpToken, state);
+        }
         return ResponseEntity.ok().build();
     }
 
@@ -152,6 +166,34 @@ public class PresentationController {
         MockWalletResponse walletResponse = mockWallet.respondTo(tx.signedRequest.requestObjectJwt());
         completeWithWalletResponse(tx, walletResponse.vpTokenJson(), walletResponse.state());
         return Map.of("state", tx.state.get().name());
+    }
+
+    private void completeWithEncryptedWalletResponse(Transaction tx, String encryptedResponse) {
+        tx.state.set(Transaction.State.RESPONSE_RECEIVED);
+        tx.rawResponseJson = "(encrypted; see decrypted vp_token below)";
+        try {
+            AuthorizationResponse response = AuthorizationResponse.fromDirectPostJwt(
+                    encryptedResponse, tx.signedRequest.responseEncryptionKey());
+
+            List<VerifiedPresentation> results = new ArrayList<>();
+            for (var entry : response.vpToken().entrySet()) {
+                for (String presentation : entry.getValue()) {
+                    var sdJwtVc = com.korrali.eudirp.presentation.SdJwtVc.parse(presentation);
+                    Map<String, Object> disclosedClaims = sdJwtVc.resolveDisclosedClaims();
+                    results.add(new VerifiedPresentation(entry.getKey(), CredentialFormat.SD_JWT_VC, disclosedClaims));
+                }
+            }
+            tx.result = results;
+            tx.issuerSignatureNote = "Transport decrypted successfully (response_mode=direct_post.jwt). "
+                    + "Issuer signature NOT verified — this build has no configured trust for external "
+                    + "test issuers (credential-issuer trust is a documented out-of-scope boundary, "
+                    + "separate from the RP's own certificate lifecycle, which is this project's actual focus).";
+            tx.state.set(Transaction.State.VERIFIED);
+        } catch (Exception e) {
+            tx.errorType = e.getClass().getSimpleName();
+            tx.errorMessage = e.getMessage();
+            tx.state.set(Transaction.State.FAILED);
+        }
     }
 
     private void completeWithWalletResponse(Transaction tx, String vpTokenJson, String state) {
@@ -188,6 +230,9 @@ public class PresentationController {
                 return m;
             }).toList();
             response.put("credentials", credentials);
+        }
+        if (tx.issuerSignatureNote != null) {
+            response.put("issuerSignatureNote", tx.issuerSignatureNote);
         }
         if (tx.errorType != null) {
             response.put("errorType", tx.errorType);
