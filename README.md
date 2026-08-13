@@ -131,7 +131,7 @@ forward commitments. Stated once here so it doesn't need relitigating in every i
 — including a BouncyCastle-based manual metadata parser to work around the JDK's strict X.509
 parsing, and hot-reloadable signing certificates with automatic on-failure refresh. This library is
 the same failure class, generalized to OpenID4VP relying-party certificates ahead of the EUDI
-wallet mandate. `[link to personal site — not filled in here since no verified URL was provided]`
+wallet mandate. [korrali.com](https://www.korrali.com)
 
 ## License
 
