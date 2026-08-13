@@ -64,10 +64,29 @@ class PresentationFlowTest {
 
         SignedJWT parsed = SignedJWT.parse(signed.requestObjectJwt());
         assertThat(parsed.getHeader().getType().toString()).isEqualTo("oauth-authz-req+jwt");
-        assertThat(parsed.getHeader().getX509CertChain()).hasSize(2); // leaf + CA
+        // leaf only — the CA is self-signed (the trust anchor) and must NOT appear in x5c
+        // (OID4VP-1FINAL-5.9.3, confirmed against the real OIDF conformance suite)
+        assertThat(parsed.getHeader().getX509CertChain()).hasSize(1);
         assertThat(parsed.getJWTClaimsSet().getStringClaim("response_type")).isEqualTo("vp_token");
         assertThat(parsed.getJWTClaimsSet().getStringClaim("client_id")).isEqualTo(signed.clientId());
         assertThat(parsed.getJWTClaimsSet().getStringClaim("nonce")).isNotBlank();
+
+        // nonce must be URL-safe base64 — no '+', '/', or '=' (OID4VP-1FINAL-5.2)
+        String nonce = parsed.getJWTClaimsSet().getStringClaim("nonce");
+        assertThat(nonce).doesNotContain("+", "/", "=");
+
+        // aud is required on the Request Object; this library never does dynamic wallet-metadata
+        // discovery, so it's always the static-discovery fixed value (OpenID4VP "aud of a Request
+        // Object"). Nimbus normalizes the registered "aud" claim to a JSON array on the wire even
+        // when set as a single string (RFC 7519 §4.1.3's general case, not the single-string
+        // special case) — verified against the actual serialized+reparsed JWT, not assumed.
+        assertThat(parsed.getJWTClaimsSet().getAudience()).containsExactly("https://self-issued.me/v2");
+
+        // vp_formats_supported is REQUIRED in client_metadata regardless of response_mode
+        // (OID4VP-1FINALA-B.2.2 / B.3.4)
+        @SuppressWarnings("unchecked")
+        Map<String, Object> clientMetadataAlwaysPresent = (Map<String, Object>) parsed.getJWTClaimsSet().getClaim("client_metadata");
+        assertThat(clientMetadataAlwaysPresent).containsKey("vp_formats_supported");
 
         @SuppressWarnings("unchecked")
         Map<String, Object> dcqlQuery = (Map<String, Object>) parsed.getJWTClaimsSet().getClaim("dcql_query");
@@ -185,7 +204,9 @@ class PresentationFlowTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> clientMetadata = (Map<String, Object>) parsedRequest.getJWTClaimsSet().getClaim("client_metadata");
         assertThat(clientMetadata).containsKey("jwks");
-        assertThat(clientMetadata).containsKey("encrypted_response_enc_values_supported");
+        // HAIP §5 requires both, not just one (HAIP-5-5)
+        assertThat(clientMetadata.get("encrypted_response_enc_values_supported"))
+                .isEqualTo(List.of("A128GCM", "A256GCM"));
 
         // Simulate the wallet: it only ever sees the PUBLIC half of the key (from client_metadata),
         // never the private key our RP holds server-side.

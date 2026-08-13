@@ -144,7 +144,7 @@ public class PresentationController {
     }
 
     @PostMapping(value = "/wallet/direct_post/{id}", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public ResponseEntity<Void> directPost(@PathVariable String id,
+    public ResponseEntity<Map<String, Object>> directPost(@PathVariable String id,
                                             @RequestParam(value = "vp_token", required = false) String vpToken,
                                             @RequestParam(value = "response", required = false) String encryptedResponse,
                                             @RequestParam(value = "state", required = false) String state) {
@@ -154,7 +154,10 @@ public class PresentationController {
         } else {
             completeWithWalletResponse(tx, vpToken, state);
         }
-        return ResponseEntity.ok().build();
+        // An explicit, non-empty JSON body — some wallet/test-client implementations treat a
+        // truly empty response body as a failed call even on HTTP 200 (OpenID4VP itself only
+        // requires a redirect_uri here for same-device continuation, which this flow doesn't use).
+        return ResponseEntity.ok().body(Map.of());
     }
 
     @PostMapping("/presentations/{id}/simulate-scan")
