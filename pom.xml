@@ -13,6 +13,11 @@
   <description>Java/Spring Boot library for acting as an EUDI Wallet Relying Party</description>
   <url>https://github.com/korrali/eudi-rp-java</url>
 
+  <organization>
+    <name>Korrali</name>
+    <url>https://korrali.com</url>
+  </organization>
+
   <licenses>
     <license>
       <name>Apache License, Version 2.0</name>

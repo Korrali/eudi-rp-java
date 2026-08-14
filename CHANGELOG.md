@@ -8,6 +8,13 @@ All notable changes to this project are documented in this file. Format follows
 ## [Unreleased]
 
 ### Added
+- `LICENSE` file at repo root (full Apache License 2.0 text) — previously only referenced from the
+  README, not actually present.
+- `pom.xml`: top-level `<organization>` element (was only present under `<developers>`).
+
+## [0.1.0] - 2026-08-13
+
+### Added
 - `eudi-rp-core`: RP access certificate loading (PKCS#12/JKS), PKIX chain validation, CRL + OCSP
   revocation checking, local file-based trust list, hot reload on validation failure, tolerant
   (BouncyCastle) X.509 parsing fallback with a real, empirically-verified malformed-certificate
@@ -27,4 +34,3 @@ All notable changes to this project are documented in this file. Format follows
 - mdoc/ISO 18013-5 not supported.
 - Not tested against a real EUDI wallet or the EU reference verifier — see
   `eudi-rp-mock-wallet/COMPATIBILITY.md`.
-- Not yet published to Maven Central.
