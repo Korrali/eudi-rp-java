@@ -59,8 +59,17 @@ public final class TestCertificates {
     }
 
     public static IssuedCertificate selfSignedCa(String commonName) {
+        return selfSignedCa(commonName, "RSA");
+    }
+
+    /**
+     * @param keyAlgorithm {@code "RSA"} (2048-bit), or a JCA/BouncyCastle EC curve name
+     *                     ({@code "secp256r1"}, {@code "brainpoolP256r1"}, {@code "brainpoolP384r1"},
+     *                     {@code "brainpoolP512r1"}, ...) — see {@link #generateKeyPair(String)}.
+     */
+    public static IssuedCertificate selfSignedCa(String commonName, String keyAlgorithm) {
         try {
-            KeyPair keyPair = generateKeyPair();
+            KeyPair keyPair = generateKeyPair(keyAlgorithm);
             X500Name subject = new X500Name("CN=" + commonName);
             Instant now = Instant.now();
             JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
@@ -85,8 +94,17 @@ public final class TestCertificates {
 
     public static IssuedCertificate leaf(IssuedCertificate ca, String commonName, Instant notBefore, Instant notAfter,
                                           String crlDistributionPointUri, String ocspResponderUri) {
+        return leaf(ca, "RSA", commonName, notBefore, notAfter, crlDistributionPointUri, ocspResponderUri);
+    }
+
+    /** Same as the four-arg {@link #leaf}, but with the leaf's own key generated using
+     * {@code keyAlgorithm} (see {@link #generateKeyPair(String)}) instead of always RSA. The CA's
+     * signing algorithm is inferred from the CA's own key, independently. */
+    public static IssuedCertificate leaf(IssuedCertificate ca, String keyAlgorithm, String commonName,
+                                          Instant notBefore, Instant notAfter,
+                                          String crlDistributionPointUri, String ocspResponderUri) {
         try {
-            KeyPair keyPair = generateKeyPair();
+            KeyPair keyPair = generateKeyPair(keyAlgorithm);
             X500Name issuer = new JcaX509CertificateHolder(ca.certificate()).getSubject();
             X500Name subject = new X500Name("CN=" + commonName);
 
@@ -205,7 +223,11 @@ public final class TestCertificates {
     }
 
     private static X509Certificate sign(JcaX509v3CertificateBuilder builder, PrivateKey signerKey) throws Exception {
-        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+        // X.509's ecdsa-with-SHA256 AlgorithmIdentifier (OID 1.2.840.10045.4.3.2) doesn't encode a
+        // curve — unlike JOSE's ES256, it's genuinely curve-agnostic, so no per-curve branching is
+        // needed here (contrast PresentationRequestBuilder.signingAlgorithm(), which does need it).
+        String signatureAlgorithm = "EC".equals(signerKey.getAlgorithm()) ? "SHA256withECDSA" : "SHA256withRSA";
+        ContentSigner signer = new JcaContentSignerBuilder(signatureAlgorithm)
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(signerKey);
         X509CertificateHolder holder = builder.build(signer);
         return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME).getCertificate(holder);
@@ -216,8 +238,20 @@ public final class TestCertificates {
     }
 
     private static KeyPair generateKeyPair() throws Exception {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
+        return generateKeyPair("RSA");
+    }
+
+    /** @param keyAlgorithm {@code "RSA"}, or a JCA/BouncyCastle EC curve name understood by
+     *                      {@link org.bouncycastle.jce.spec.ECGenParameterSpec} (e.g.
+     *                      {@code "secp256r1"}, {@code "brainpoolP256r1"}). */
+    private static KeyPair generateKeyPair(String keyAlgorithm) throws Exception {
+        if ("RSA".equals(keyAlgorithm)) {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return generator.generateKeyPair();
+        }
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC", BouncyCastleProvider.PROVIDER_NAME);
+        generator.initialize(new java.security.spec.ECGenParameterSpec(keyAlgorithm));
         return generator.generateKeyPair();
     }
 }

@@ -11,6 +11,21 @@ All notable changes to this project are documented in this file. Format follows
 - `LICENSE` file at repo root (full Apache License 2.0 text) — previously only referenced from the
   README, not actually present.
 - `pom.xml`: top-level `<organization>` element (was only present under `<developers>`).
+- `eudi-rp-demo`: `robots.txt`, `sitemap.xml`, and a meta description for the live demo.
+- Brainpool curve support (BrainpoolP256r1, BrainpoolP384r1) for RP access certificates — see
+  `eudi-rp-mock-wallet/COMPATIBILITY.md` for what's verified and what's still open.
+
+### Fixed
+- `PresentationRequestBuilder.signingAlgorithm()` declared `ES256` for **any** EC signing key
+  regardless of curve — a P-384 or P-521 RP certificate (not just Brainpool) would sign correctly
+  but mislabel the JWS `alg` header, which a strict wallet should reject. Now selects `ES256`/
+  `ES384`/`ES512` by the key's actual field size; BrainpoolP512r1 is explicitly rejected rather than
+  guessed, since it doesn't fit any registered JOSE `alg`.
+- `DefaultCertificateValidator`'s own chain-of-trust validation silently couldn't handle
+  non-NIST-curve certificates at all (the JDK's default PKIX path validator, and even BouncyCastle's
+  PKIX SPI when it delegates back to `X509CertImpl.verify()`, resolve ECDSA via the ambient global
+  JCA provider order, which doesn't recognize Brainpool). Fixed by re-encoding certificates through
+  BouncyCastle's own `CertificateFactory` before validation — no global JVM provider state changed.
 
 ## [0.1.0] - 2026-08-13
 

@@ -235,4 +235,98 @@ class PresentationFlowTest {
         assertThat(results).hasSize(1);
         assertThat(results.get(0).disclosedClaims()).containsEntry("given_name", "Ada");
     }
+
+    /**
+     * Before this fix, {@code signingAlgorithm()} declared {@code ES256} for ANY EC key regardless
+     * of curve — so a P-384 or P-521 RP key (both plain NIST curves, nothing exotic) would have been
+     * signed correctly but mislabeled, which a strict wallet should reject. This wasn't a
+     * Brainpool-only bug; it affected every non-P-256 EC key this library never had a fixture for.
+     */
+    @Test
+    void signsWithP384AndDeclaresES384NotES256(@TempDir Path tempDir) throws Exception {
+        assertCorrectAlgForCurve(tempDir, "secp384r1", com.nimbusds.jose.JWSAlgorithm.ES384);
+    }
+
+    @Test
+    void signsWithP521AndDeclaresES512(@TempDir Path tempDir) throws Exception {
+        assertCorrectAlgForCurve(tempDir, "secp521r1", com.nimbusds.jose.JWSAlgorithm.ES512);
+    }
+
+    /**
+     * ENISA's ECCG "Agreed Cryptographic Mechanisms v2.0" (Apr 2025) — the document EUDI ARF
+     * Annex 2.03 defers to for algorithm approval — lists BrainpoolP256r1 as "Recommended", the
+     * same tier as NIST P-256. Germany's BSI recommends it specifically for sovereign deployments.
+     */
+    @Test
+    void signsWithBrainpoolP256r1AndDeclaresES256(@TempDir Path tempDir) throws Exception {
+        assertCorrectAlgForCurve(tempDir, "brainpoolP256r1", com.nimbusds.jose.JWSAlgorithm.ES256);
+    }
+
+    @Test
+    void signsWithBrainpoolP384r1AndDeclaresES384(@TempDir Path tempDir) throws Exception {
+        assertCorrectAlgForCurve(tempDir, "brainpoolP384r1", com.nimbusds.jose.JWSAlgorithm.ES384);
+    }
+
+    /**
+     * BrainpoolP512r1 is deliberately rejected, not silently mapped to ES512 (which is defined for
+     * the 521-bit P-521 curve, not this 512-bit one) — see the javadoc on
+     * {@code PresentationRequestBuilder.ecSigningAlgorithm}.
+     */
+    @Test
+    void refusesToSignWithBrainpoolP512r1(@TempDir Path tempDir) throws Exception {
+        DeclaredAttributeSet declared = declaredAttributes(tempDir, "given_name");
+        TestCertificates.IssuedCertificate ca = TestCertificates.selfSignedCa("Test RP Access CA", "brainpoolP512r1");
+        Instant now = Instant.now();
+        TestCertificates.IssuedCertificate leaf = TestCertificates.leaf(
+                ca, "brainpoolP512r1", "rp.example.org", now.minus(1, ChronoUnit.DAYS), now.plus(365, ChronoUnit.DAYS), null, null);
+        RpKeyMaterial rpKey = new RpKeyMaterial(leaf.privateKey(), leaf.certificate(), List.of(ca.certificate()));
+
+        DcqlCredentialQuery query = new DcqlCredentialQuery(
+                "my_credential", CredentialFormat.SD_JWT_VC,
+                List.of("https://credentials.example.com/identity_credential"),
+                List.of(declared.claim("given_name")));
+
+        PresentationRequestBuilder builder = new PresentationRequestBuilder(rpKey, declared)
+                .credential(query).responseUri("https://rp.example.org/wallet/direct_post").state("abc123");
+
+        assertThatThrownBy(builder::build)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("512-bit");
+    }
+
+    private static void assertCorrectAlgForCurve(Path tempDir, String curveName, com.nimbusds.jose.JWSAlgorithm expectedAlg) throws Exception {
+        DeclaredAttributeSet declared = declaredAttributes(tempDir, "given_name");
+        TestCertificates.IssuedCertificate ca = TestCertificates.selfSignedCa("Test RP Access CA", curveName);
+        Instant now = Instant.now();
+        TestCertificates.IssuedCertificate leaf = TestCertificates.leaf(
+                ca, curveName, "rp.example.org", now.minus(1, ChronoUnit.DAYS), now.plus(365, ChronoUnit.DAYS), null, null);
+        RpKeyMaterial rpKey = new RpKeyMaterial(leaf.privateKey(), leaf.certificate(), List.of(ca.certificate()));
+
+        DcqlCredentialQuery query = new DcqlCredentialQuery(
+                "my_credential", CredentialFormat.SD_JWT_VC,
+                List.of("https://credentials.example.com/identity_credential"),
+                List.of(declared.claim("given_name")));
+
+        SignedPresentationRequest signed = new PresentationRequestBuilder(rpKey, declared)
+                .credential(query)
+                .responseUri("https://rp.example.org/wallet/direct_post")
+                .state("abc123")
+                .build();
+
+        SignedJWT parsed = SignedJWT.parse(signed.requestObjectJwt());
+        assertThat(parsed.getHeader().getAlgorithm()).isEqualTo(expectedAlg);
+
+        // Not just the declared header — the signature must actually verify against the leaf's
+        // real public key, proving the mechanical sign/verify round trip genuinely works for this
+        // curve, not just that the label looks right. Nimbus's ECDSAVerifier has no explicit-curve
+        // overload (unlike ECDSASigner) and its auto-detection rejects Brainpool the same way, so
+        // this verifies directly via the same ECDSA.getSignerAndVerifier(alg, provider) utility
+        // Nimbus itself uses internally, forcing the BC provider explicitly.
+        byte[] derSignature = com.nimbusds.jose.crypto.impl.ECDSA.transcodeSignatureToDER(parsed.getSignature().decode());
+        java.security.Signature verifier = com.nimbusds.jose.crypto.impl.ECDSA.getSignerAndVerifier(
+                expectedAlg, java.security.Security.getProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME));
+        verifier.initVerify((java.security.interfaces.ECPublicKey) leaf.certificate().getPublicKey());
+        verifier.update(parsed.getSigningInput());
+        assertThat(verifier.verify(derSignature)).isTrue();
+    }
 }

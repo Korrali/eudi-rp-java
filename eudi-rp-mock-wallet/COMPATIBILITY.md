@@ -43,6 +43,48 @@ against our own mock wallet." It does **not** prove interoperability with a real
 actual UX/behavior (see below) — the conformance suite is a protocol simulator, not the EUDI
 reference wallet or a production wallet implementation.
 
+## Brainpool curve support (BrainpoolP256r1, BrainpoolP384r1)
+
+Germany's BSI recommends Brainpool curves (RFC 5639) for sovereign PKI deployments, while other
+Member States and NOBID default to NIST curves. Before this library supported anything but NIST
+curves, loading an RP access certificate on a Brainpool curve would still sign requests and label
+them `alg: ES256` regardless of the real curve — mechanically valid but spec-non-compliant (RFC 7518
+defines `ES256` specifically for P-256), and it would have failed this library's *own* internal
+chain-of-trust self-check outright (the JDK's default PKIX certificate validator doesn't recognize
+Brainpool curves at all).
+
+**What's fixed and verified**: `PresentationRequestBuilder` now selects the JOSE `alg` by the key's
+actual field size (256/384-bit curves both correctly resolve regardless of whether they're P-256/384
+or BrainpoolP256r1/384r1), and `DefaultCertificateValidator`'s own chain validation now works
+correctly for Brainpool-keyed certificates too (fixed via BouncyCastle-native certificate objects,
+not a global JVM security-provider change — see the class's Javadoc for why that distinction
+matters). Both are covered by real, non-mocked tests:
+
+- `PresentationFlowTest` — actual ECDSA sign + verify round trips for P-384, P-521, BrainpoolP256r1,
+  and BrainpoolP384r1 RP keys, confirming both the declared `alg` and the cryptographic signature
+  itself are correct for each. BrainpoolP512r1 is deliberately rejected with a clear error, not
+  silently mapped to `ES512` (which is defined for the 521-bit P-521 curve, not this 512-bit one).
+- `DemoBrainpoolKeySmokeTest` — the full Spring Boot demo stack (certificate loading, chain-of-trust
+  self-validation, revocation checking, request signing, mock-wallet response, response
+  verification) running end-to-end with a real BrainpoolP256r1 RP certificate, not just the request
+  builder in isolation.
+
+**Regulatory basis, checked against the primary source, not recalled**: ENISA's ECCG "Agreed
+Cryptographic Mechanisms v2.0" (April 2025) — the document EUDI ARF Annex 2.03 defers to for
+algorithm approval — lists BrainpoolP256r1, BrainpoolP384r1, and BrainpoolP512r1 as **"Recommended"**,
+the same top tier as NIST P-256/384/521, with ECDSA itself also "Recommended" as a signature scheme.
+This isn't a niche accommodation; it's an EU-wide agreed mechanism.
+
+**What's NOT yet verified**: whether a real wallet — or the OIDF conformance suite — actually accepts
+an `ES256`-labeled request signed with a BrainpoolP256r1 key. RFC 7518 doesn't define a separate JOSE
+`alg` for Brainpool curves, so this library reuses `ES256`/`ES384` on the reasoning that a same-bit-length
+curve produces an identically-shaped signature and a wallet is expected to derive the actual curve
+from the `x5c` certificate rather than the `alg` string alone — but a wallet that strictly cross-checks
+`alg` against the certificate's curve could still reject this. This is a real, open empirical question,
+not a solved one; running the demo (with `EUDIRP_DEMO_KEY_ALGORITHM=brainpoolP256r1`) against the OIDF
+conformance suite would settle it, and this file should be updated with the actual result once that
+happens.
+
 ## Still not attempted: a real EUDI wallet app, or the EU reference verifier
 
 Per the original brief for this phase: attempt an end-to-end test against the EU reference verifier

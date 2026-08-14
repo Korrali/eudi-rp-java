@@ -68,6 +68,16 @@ built to get right:
 - **Revocation.** OCSP is tried first; if the responder is unreachable or the certificate has no
   OCSP endpoint, it falls back to CRL. Either check finding the certificate revoked is authoritative,
   and the caller learns *which* mechanism caught it, not just "invalid."
+- **Curve support beyond NIST.** Germany's BSI recommends Brainpool curves (RFC 5639) for sovereign
+  PKI deployments; other Member States default to NIST curves. This library signs correctly with
+  BrainpoolP256r1 and BrainpoolP384r1 RP certificates — not just P-256 — verified with real
+  cryptographic sign/verify round trips and a full end-to-end run of the demo against a genuine
+  Brainpool-keyed certificate, not just accepted without erroring. ENISA's ECCG "Agreed
+  Cryptographic Mechanisms v2.0" (Apr 2025) — the document EUDI ARF Annex 2.03 defers to for
+  algorithm approval — lists these curves "Recommended", the same tier as NIST's. See
+  `eudi-rp-mock-wallet/COMPATIBILITY.md` for exactly what's verified and what's still open (whether
+  a real wallet accepts the JOSE `alg` convention chosen, since RFC 7518 has no registered `alg` for
+  Brainpool).
 - **Malformed certificates from sovereign issuers.** Some CA software emits certificates that are
   valid BER but not strict DER — the JDK's default X.509 parser rejects some of these outright. The
   strict path is tried first; a BouncyCastle-based tolerant path is the fallback, engaging (and

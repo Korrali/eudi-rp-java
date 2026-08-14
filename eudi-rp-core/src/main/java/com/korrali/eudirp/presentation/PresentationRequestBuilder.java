@@ -17,7 +17,10 @@ import com.nimbusds.jose.util.Base64URL;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+
 import java.security.SecureRandom;
+import java.security.Security;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPrivateKey;
@@ -39,6 +42,12 @@ import java.util.UUID;
  * here in {@link #build()} — see {@link DeclaredScopeViolationException}.
  */
 public final class PresentationRequestBuilder {
+
+    static {
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+    }
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -194,8 +203,8 @@ public final class PresentationRequestBuilder {
     }
 
     private JWSAlgorithm signingAlgorithm() {
-        if (signingMaterial.privateKey() instanceof ECPrivateKey) {
-            return JWSAlgorithm.ES256;
+        if (signingMaterial.privateKey() instanceof ECPrivateKey ecKey) {
+            return ecSigningAlgorithm(ecKey);
         }
         if (signingMaterial.privateKey() instanceof RSAPrivateKey) {
             return JWSAlgorithm.RS256;
@@ -205,15 +214,80 @@ public final class PresentationRequestBuilder {
                         + " (only RSA and EC keys are supported)");
     }
 
+    /**
+     * RFC 7518 defines {@code ES256}/{@code ES384}/{@code ES512} specifically for NIST P-256/384/521
+     * — there is no separate registered JOSE {@code alg} for Brainpool curves (RFC 5639), and Nimbus
+     * (this project's JOSE library) has no built-in {@code Curve} constant for them either. This
+     * method picks the {@code alg} by the key's field size rather than by exact curve identity: a
+     * 256-bit curve's ECDSA signature is always a 32-byte-r/32-byte-s pair regardless of which
+     * 256-bit curve produced it, so BrainpoolP256r1 and P-256 are wire-compatible under {@code ES256}
+     * (same reasoning for BrainpoolP384r1 under {@code ES384}). ENISA's ECCG "Agreed Cryptographic
+     * Mechanisms v2.0" (Apr 2025), the document EUDI ARF Annex 2.03 defers to for algorithm approval,
+     * lists BrainpoolP256r1/P384r1/P512r1 as "Recommended" — the same tier as the NIST curves — so
+     * this isn't a niche choice.
+     *
+     * <p><b>Not yet empirically verified against a real wallet or the OIDF conformance suite</b> —
+     * a verifier that strictly cross-checks {@code alg} against the curve embedded in the x5c leaf
+     * certificate (rather than deriving the curve from the certificate alone, which is what {@code
+     * alg} can't fully specify here) could still reject this. See
+     * {@code eudi-rp-mock-wallet/COMPATIBILITY.md}.
+     *
+     * <p>BrainpoolP512r1 is deliberately unsupported: it's a 512-bit curve, not 521-bit, so it does
+     * NOT fit {@code ES512}'s fixed 66-byte-r/66-byte-s encoding (defined for P-521). Guessing an
+     * alg here would repeat the exact class of bug this method fixes, so it fails loudly instead.
+     */
+    private static JWSAlgorithm ecSigningAlgorithm(ECPrivateKey ecKey) {
+        int fieldSizeBits = ecKey.getParams().getCurve().getField().getFieldSize();
+        return switch (fieldSizeBits) {
+            case 256 -> JWSAlgorithm.ES256; // NIST P-256 or BrainpoolP256r1
+            case 384 -> JWSAlgorithm.ES384; // NIST P-384 or BrainpoolP384r1
+            case 521 -> JWSAlgorithm.ES512; // NIST P-521 only
+            default -> throw new IllegalStateException(
+                    "Unsupported EC curve: " + fieldSizeBits + "-bit field. No JOSE ES* algorithm is "
+                            + "defined for this key size (256-, 384-, and 521-bit curves are supported; "
+                            + "note BrainpoolP512r1 is 512-bit, not 521-bit, and is not covered by ES512).");
+        };
+    }
+
     private JWSSigner signer() throws JOSEException {
         if (signingMaterial.privateKey() instanceof ECPrivateKey ecKey) {
-            return new ECDSASigner(ecKey);
+            // Nimbus's single-arg ECDSASigner(ECPrivateKey) auto-detects the curve itself and
+            // rejects anything that isn't P-256/384/521 outright — it doesn't know Brainpool exists
+            // (verified empirically: it throws "The EC key curve is not supported" for a real
+            // BrainpoolP256r1 key). The (PrivateKey, Curve) overload instead takes the curve as an
+            // explicit hint used only to determine the expected signature byte length for JOSE's
+            // fixed-length r/s encoding — the actual EC math still comes from the real key via the
+            // JCA provider, so passing Nimbus's P-256/384/521 constant for a same-bit-length
+            // Brainpool key is correct, not a lie: BrainpoolP256r1's ECDSA signature is a 32-byte-r/
+            // 32-byte-s pair, identically shaped to P-256's.
+            //
+            // Separately, the default JCA provider chain's ECDSA signature engine (JDK's own SunEC)
+            // doesn't understand BouncyCastle's ECNamedCurveSpec for Brainpool keys even once Nimbus
+            // accepts the curve hint above — verified empirically ("Curve not supported:
+            // ECNamedCurveSpec"). Forcing the BC provider for the actual JCA Signature operation
+            // fixes it; BC registers and understands Brainpool curves natively.
+            ECDSASigner signer = new ECDSASigner(ecKey, curveHintFor(ecSigningAlgorithm(ecKey)));
+            signer.getJCAContext().setProvider(Security.getProvider(BouncyCastleProvider.PROVIDER_NAME));
+            return signer;
         }
         if (signingMaterial.privateKey() instanceof RSAPrivateKey rsaKey) {
             return new RSASSASigner(rsaKey);
         }
         throw new IllegalStateException(
                 "Unsupported signing key type: " + signingMaterial.privateKey().getAlgorithm());
+    }
+
+    private static Curve curveHintFor(JWSAlgorithm alg) {
+        if (JWSAlgorithm.ES256.equals(alg)) {
+            return Curve.P_256;
+        }
+        if (JWSAlgorithm.ES384.equals(alg)) {
+            return Curve.P_384;
+        }
+        if (JWSAlgorithm.ES512.equals(alg)) {
+            return Curve.P_521;
+        }
+        throw new IllegalStateException("Unexpected EC JWS algorithm: " + alg);
     }
 
     private static String generateNonce() {

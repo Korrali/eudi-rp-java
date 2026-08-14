@@ -50,6 +50,19 @@ public final class DemoPkiBootstrap {
     }
 
     public static void generateIfMissing(Path dataDir) throws Exception {
+        generateIfMissing(dataDir, "RSA");
+    }
+
+    /**
+     * @param keyAlgorithm {@code "RSA"} (2048-bit, the default), or a JCA/BouncyCastle EC curve
+     *                     name such as {@code "secp256r1"}, {@code "brainpoolP256r1"}, or
+     *                     {@code "brainpoolP384r1"} — see
+     *                     {@code com.korrali.eudirp.presentation.PresentationRequestBuilder}'s
+     *                     curve-to-algorithm mapping for which curves this library can sign with.
+     *                     Only used the first time a fresh {@code dataDir} is generated; an
+     *                     existing keystore is never migrated.
+     */
+    public static void generateIfMissing(Path dataDir, String keyAlgorithm) throws Exception {
         Files.createDirectories(dataDir);
         Path keystorePath = dataDir.resolve("rp.p12");
         Path trustPath = dataDir.resolve("trust.pem");
@@ -63,7 +76,7 @@ public final class DemoPkiBootstrap {
             return;
         }
 
-        KeyPair caKeyPair = generateKeyPair();
+        KeyPair caKeyPair = generateKeyPair(keyAlgorithm);
         X500Name caName = new X500Name("CN=eudi-rp-java Demo Access CA,O=eudi-rp-java demo,C=EU");
         Instant now = Instant.now();
         JcaX509v3CertificateBuilder caBuilder = new JcaX509v3CertificateBuilder(
@@ -72,7 +85,7 @@ public final class DemoPkiBootstrap {
         caBuilder.addExtension(Extension.basicConstraints, true, new BasicConstraints(true));
         X509Certificate caCert = sign(caBuilder, caKeyPair.getPrivate());
 
-        KeyPair leafKeyPair = generateKeyPair();
+        KeyPair leafKeyPair = generateKeyPair(keyAlgorithm);
         X500Name leafName = new X500Name("CN=eudi-rp-java-demo.korrali.com,O=Korrali,C=EU");
         JcaX509v3CertificateBuilder leafBuilder = new JcaX509v3CertificateBuilder(
                 caName, BigInteger.valueOf(2), Date.from(now.minus(1, ChronoUnit.DAYS)),
@@ -91,15 +104,23 @@ public final class DemoPkiBootstrap {
     }
 
     private static X509Certificate sign(JcaX509v3CertificateBuilder builder, PrivateKey signerKey) throws Exception {
-        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+        // X.509's ecdsa-with-SHA256 AlgorithmIdentifier doesn't encode a curve — genuinely
+        // curve-agnostic, unlike JOSE's ES256 (see PresentationRequestBuilder.signer()).
+        String signatureAlgorithm = "EC".equals(signerKey.getAlgorithm()) ? "SHA256withECDSA" : "SHA256withRSA";
+        ContentSigner signer = new JcaContentSignerBuilder(signatureAlgorithm)
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(signerKey);
         X509CertificateHolder holder = builder.build(signer);
         return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME).getCertificate(holder);
     }
 
-    private static KeyPair generateKeyPair() throws Exception {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
+    private static KeyPair generateKeyPair(String keyAlgorithm) throws Exception {
+        if ("RSA".equals(keyAlgorithm)) {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return generator.generateKeyPair();
+        }
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC", BouncyCastleProvider.PROVIDER_NAME);
+        generator.initialize(new java.security.spec.ECGenParameterSpec(keyAlgorithm));
         return generator.generateKeyPair();
     }
 

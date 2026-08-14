@@ -15,6 +15,12 @@ certificate under `./demo-data/` — this is a demo convenience, not how a real 
 provisions certificates (see DESIGN.md §2.2: real access certificates come from a Member
 State-notified Access Certificate Authority via the registration process).
 
+By default that throwaway certificate is RSA. Set `EUDIRP_DEMO_KEY_ALGORITHM=brainpoolP256r1` (or
+`brainpoolP384r1`, `secp256r1`, `secp384r1`, `secp521r1`) before first run to generate it on that
+curve instead — only takes effect on a fresh `demo-data/` directory, it won't migrate an existing
+one. See `eudi-rp-mock-wallet/COMPATIBILITY.md` for what Brainpool-curve support is and isn't
+verified against.
+
 Click "Request identity verification". With no live wallet configured (the default), click
 "Simulate wallet scan" — the mock wallet (`eudi-rp-mock-wallet`) builds a real, signed SD-JWT VC
 presentation and the flow completes for real: request signing, DCQL query, response verification,
