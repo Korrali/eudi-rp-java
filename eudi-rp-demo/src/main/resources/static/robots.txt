@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://eudirp.korrali.com/sitemap.xml
