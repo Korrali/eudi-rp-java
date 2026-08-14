@@ -7,6 +7,8 @@ All notable changes to this project are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-14
+
 ### Added
 - `LICENSE` file at repo root (full Apache License 2.0 text) — previously only referenced from the
   README, not actually present.
